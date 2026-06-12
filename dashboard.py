@@ -46,6 +46,16 @@ st.markdown("""
     .kpi-delta.down { color: #3fb950; }
     .kpi-delta.neu  { color: #8b949e; }
 
+    /* KPI 델타 텍스트 한 줄 고정 */
+    .kpi-delta-nowrap {
+        font-size: 13px;
+        margin-top: 6px;
+        color: #8b949e;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
     /* 섹션 타이틀 */
     .section-title {
         font-size: 15px; font-weight: 700;
@@ -85,6 +95,14 @@ st.markdown("""
 
     h1, h2, h3 { color: #e6edf3 !important; }
     p, li { color: #c9d1d9; }
+
+    /* 데이터 이력 레이블 하단 패딩 */
+    .history-label {
+        font-size: 11px;
+        color: #8b949e;
+        margin: 8px 0 10px 0;
+        padding-bottom: 6px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -135,9 +153,7 @@ with st.sidebar:
     st.markdown("### ⚙️ 설정")
 
     # ── 데이터 업로드 & 이력 ─────────────────────────────
-    # session_state 초기화
     if "data_history" not in st.session_state:
-        # [(표시명, 파일경로_or_bytes, 설명)] 리스트
         st.session_state.data_history = [
             ("기본 데이터", ORIGINAL_PATH, "최초 로드")
         ]
@@ -152,7 +168,6 @@ with st.sidebar:
     )
     if uploaded is not None:
         import io
-        # 같은 파일 중복 추가 방지
         existing_names = [h[0] for h in st.session_state.data_history]
         if uploaded.name not in existing_names:
             bytes_data = uploaded.read()
@@ -163,9 +178,9 @@ with st.sidebar:
             st.cache_data.clear()
             st.rerun()
 
-    # 업데이트 이력 표시 & 선택
+    # 업데이트 이력 표시 & 선택 — 레이블 하단 패딩 추가
     st.markdown(
-        "<div style='font-size:11px;color:#8b949e;margin:8px 0 4px 0;'>📋 데이터 이력</div>",
+        "<div class='history-label'>📋 데이터 이력</div>",
         unsafe_allow_html=True,
     )
     for i, (name, _, desc) in enumerate(st.session_state.data_history):
@@ -201,16 +216,10 @@ with st.sidebar:
 
     top_n = st.slider("상위 N개 유형 표시", 3, 10, 6)
 
-    st.markdown("---")
-    st.markdown("#### 🏷️ 클러스터 레이블 수정")
-    custom_labels = {}
-    for c in clusters:
-        custom_labels[c] = st.text_input(
-            f"C{c}", value=cluster_labels[c], key=f"lbl_{c}"
-        )
-    df_all["cluster_label"] = df_all["cluster"].map(custom_labels)
-
 df = df_all[df_all["year"].isin(sel_years) & df_all["cluster"].isin(sel_clusters)].copy()
+
+# cluster_label은 원본 kw_map 기반 유지 (레이블 수정 UI 제거)
+custom_labels = cluster_labels
 
 # ── 빈 필터 가드 ──────────────────────────────────────────
 if not sel_years or not sel_clusters:
@@ -261,9 +270,9 @@ with c3:
         '<div class="kpi-delta neu">사회적 관심도 지표</div>')
 with c4:
     if top_article is not None:
-        short_title = top_article["title"][:28] + "…" if len(top_article["title"]) > 28 else top_article["title"]
+        # 원문 제목 전체를 nowrap+ellipsis로 한 줄 처리
         kpi(c4, "최다 조회 사고", f"{top_article['views']:,}회",
-            f'<div class="kpi-delta neu">{short_title}</div>')
+            f'<div class="kpi-delta-nowrap">{top_article["title"]}</div>')
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -334,7 +343,6 @@ with col_left:
         subplot_titles=("발생 건수", "평균 조회수"),
         horizontal_spacing=0.12,
     )
-    # subplot_titles 색상 패치
     for ann in fig_dist.layout.annotations:
         ann.font.color = "#8b949e"
 
@@ -362,7 +370,6 @@ with col_left:
 with col_right:
     st.markdown('<div class="section-title">📉 유형별 연도 추이 (라인차트)</div>', unsafe_allow_html=True)
 
-    # 완전한 연도만 사용 (현재 연도 제외 — 반년치 왜곡 방지)
     current_year = pd.Timestamp.now().year
     line_df = df[df["year"] < current_year].copy()
     if line_df.empty:
@@ -372,7 +379,6 @@ with col_right:
         line_df.groupby(["year", "cluster_label"])
         .size().reset_index(name="count")
     )
-    # 상위 top_n 유형만 표시 (전체 기간 합산 기준)
     top_clusters = (
         line_data.groupby("cluster_label")["count"]
         .sum().nlargest(top_n).index.tolist()
@@ -427,10 +433,8 @@ st.markdown('<div class="section-title">🔑 연도별 키워드 빈도 변화</
 
 @st.cache_data
 def build_keyword_freq(df: pd.DataFrame) -> pd.DataFrame:
-    """tokens_str 컬럼에서 연도별 키워드 빈도 집계 (공백 구분 단어)"""
     rows = []
     for _, r in df.iterrows():
-        # tokens_str은 공백으로 구분된 단어열
         tokens = [t.strip() for t in str(r.get("tokens_str", "")).split() if len(t.strip()) >= 2]
         for tok in tokens:
             rows.append({"year": r["year"], "keyword": tok})
@@ -443,7 +447,6 @@ kw_freq = build_keyword_freq(df)
 
 top_kw_n = st.slider("상위 키워드 수", 5, 30, 15, key="kw_slider")
 
-# 표시할 키워드 결정
 if kw_freq.empty:
     display_keywords = []
 else:
@@ -479,7 +482,6 @@ with kw_tab1:
         st.plotly_chart(fig_kw_line, use_container_width=True)
 
 with kw_tab2:
-    # 연도 선택 → 해당 연도 Top N 막대
     avail_years = sorted(kw_freq["year"].unique())
     sel_yr_kw = st.select_slider(
         "연도 선택",
