@@ -13,7 +13,7 @@
 
 ## 실행 방법
 
-pip install streamlit plotly pandas
+pip install streamlit plotly pandas</br>
 streamlit run dashboard.py
 
 ## 데이터
